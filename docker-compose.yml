@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: licence_transport_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-licence_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-licence_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-licence_transport}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-licence_user} -d ${POSTGRES_DB:-licence_transport}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: licence_transport_redis
+    # Pas de port exposé sur l'hôte (évite le conflit avec un Redis local sur 6379).
+    # L'API Docker utilise redis://redis:6379/0 via le réseau interne.
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    container_name: licence_transport_api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-licence_user}:${POSTGRES_PASSWORD:-licence_pass}@postgres:5432/${POSTGRES_DB:-licence_transport}
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8010:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/api:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:
+  redis_data:
