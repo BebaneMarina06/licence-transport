@@ -1,0 +1,106 @@
+# Blueprint Render — Plateforme Licence de Transport (DGTT Gabon)
+# Déploiement : 1 base PostgreSQL + 1 API FastAPI (Docker) + 1 portail web statique
+# Doc pas-à-pas : docs/DEPLOIEMENT_RENDER.md
+
+databases:
+  - name: licence-transport-db
+    databaseName: licence_transport
+    user: licence_user
+    plan: free # 90 jours en gratuit ; passer en "basic" pour la production
+
+services:
+  # ----------------------------------------------------------------------------
+  # API FastAPI (conteneur Docker)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: licence-transport-api
+    runtime: docker
+    rootDir: services/api
+    dockerfilePath: ./Dockerfile
+    plan: starter # requis pour le disque persistant (uploads/licences)
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: uploads
+      mountPath: /app/uploads
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: licence-transport-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: UPLOAD_DIR
+        value: uploads
+      - key: LICENSES_DIR
+        value: uploads/licenses
+      # URLs publiques — à renseigner après le 1er déploiement (voir guide)
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      # BambooPay (paiement Mobile Money)
+      - key: BAMBOO_API_URL
+        value: https://devfront-bamboopay.ventis.group/api
+      - key: BAMBOO_USERNAME
+        sync: false
+      - key: BAMBOO_PASSWORD
+        sync: false
+      - key: BAMBOO_MERCHANT_ID
+        sync: false
+      - key: BAMBOO_RETURN_URL
+        sync: false
+      - key: BAMBOO_WEBHOOK_URL
+        sync: false
+      # E-mail (envoi des licences PDF)
+      - key: MAIL_ENABLED
+        value: "false"
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_PORT
+        value: "25"
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: DGTT - Licences de transport
+      - key: MAIL_USE_AUTH
+        value: "false"
+      # SMS Manager
+      - key: SMS_ENABLED
+        value: "false"
+      - key: SMS_MANAGER_URL
+        value: https://sms-manager.ventis.group
+      - key: SMS_API_KEY
+        sync: false
+      - key: SMS_SENDER_ID
+        value: VENTIS
+
+  # ----------------------------------------------------------------------------
+  # Portail citoyen + Backoffice admin (SPA React/Vite — site statique)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: licence-transport-portail
+    runtime: static
+    rootDir: apps/portal-citoyen
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    autoDeploy: true
+    envVars:
+      # URL complète de l'API, ex. https://licence-transport-api.onrender.com
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      # Réécriture SPA : toutes les routes servent index.html (React Router)
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN

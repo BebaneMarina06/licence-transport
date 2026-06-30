@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -5,6 +6,27 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     DATABASE_URL: str = "postgresql+asyncpg://licence_user:licence_pass@localhost:5432/licence_transport"
+
+    @field_validator("DATABASE_URL", mode="after")
+    @classmethod
+    def _force_asyncpg_driver(cls, value: str) -> str:
+        """Render fournit une URL `postgres://` ou `postgresql://`.
+
+        SQLAlchemy en mode async exige le driver asyncpg : on normalise le schéma
+        et on retire le paramètre `sslmode` que asyncpg ne comprend pas.
+        """
+        if value.startswith("postgres://"):
+            value = "postgresql+asyncpg://" + value[len("postgres://"):]
+        elif value.startswith("postgresql://"):
+            value = "postgresql+asyncpg://" + value[len("postgresql://"):]
+
+        if "sslmode=" in value:
+            from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+
+            parsed = urlparse(value)
+            query = [(k, v) for k, v in parse_qsl(parsed.query) if k != "sslmode"]
+            value = urlunparse(parsed._replace(query=urlencode(query)))
+        return value
     REDIS_URL: str = "redis://localhost:6379/0"
     SECRET_KEY: str = "changez-moi-en-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
